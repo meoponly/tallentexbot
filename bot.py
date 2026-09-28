@@ -58,7 +58,7 @@ def create_year_keyboard():
     # Featured top row: 2026 Sample Paper
     keyboard.row(InlineKeyboardButton(text="🎯 2026 Sample Paper", callback_data="yr_2026"))
 
-    # Symmetrical 2x5 grid for remaining years (2025 down to 2015)
+    # Clean 2x5 grid for remaining years
     previous_years = ["2025", "2024", "2023", "2022", "2021", "2019", "2018", "2017", "2016", "2015"]
     for i in range(0, len(previous_years), 2):
         y1 = previous_years[i]
@@ -75,18 +75,14 @@ def create_year_keyboard():
 def get_menu_text():
     return (
         "📚 *TALLENTEX Question Paper Vault*\n\n"
-        "Select an exam year below to receive the PDF in your DM:\n\n"
-        "—\n"
-        "Made by @meoponly"
+        "Select an exam year below to receive the PDF in your DM:"
     )
 
 def build_caption(year, paper_title, filename):
     return (
         f"📄 *TALLENTEX {year}*\n"
         f"📝 *Paper / Set:* {paper_title}\n"
-        f"📁 *File:* `{filename}`\n\n"
-        f"—\n"
-        f"Made by @meoponly"
+        f"📁 *File:* `{filename}`"
     )
 
 def send_pdf_to_user(user_id, chat_id, filename, caption):
@@ -103,7 +99,7 @@ def send_pdf_to_user(user_id, chat_id, filename, caption):
         if is_group:
             bot.send_message(
                 chat_id=chat_id,
-                text=f"✅ Sent `{filename}` to your DM! Please check your private chat.\n\nMade by @meoponly",
+                text=f"✅ Sent `{filename}` to your DM! Please check your private chat.",
                 parse_mode="Markdown"
             )
     except telebot.apihelper.ApiTelegramException as e:
@@ -167,9 +163,7 @@ def handle_year_choice(call):
         message_id=call.message.message_id,
         text=(
             f"📂 *TALLENTEX {year}*\n\n"
-            f"This year has multiple papers. Select one:\n\n"
-            f"—\n"
-            f"Made by @meoponly"
+            f"This year has multiple papers. Select one:"
         ),
         parse_mode="Markdown",
         reply_markup=kb
