@@ -1,4 +1,6 @@
 import os
+import time
+import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -52,13 +54,25 @@ VAULT = {
     ]
 }
 
+def auto_delete_after_delay(chat_id, message_ids, delay=300):
+    """Deletes designated messages after `delay` seconds in a background thread."""
+    def _delete():
+        time.sleep(delay)
+        for msg_id in message_ids:
+            try:
+                bot.delete_message(chat_id=chat_id, message_id=msg_id)
+            except Exception:
+                pass  # Ignore if user or admin already deleted it
+
+    threading.Thread(target=_delete, daemon=True).start()
+
 def create_year_keyboard():
     keyboard = InlineKeyboardMarkup()
 
     # Featured top row: 2026 Sample Paper
     keyboard.row(InlineKeyboardButton(text="🎯 2026 Sample Paper", callback_data="yr_2026"))
 
-    # Clean 2x5 grid for remaining years
+    # Symmetrical 2x5 grid
     previous_years = ["2025", "2024", "2023", "2022", "2021", "2019", "2018", "2017", "2016", "2015"]
     for i in range(0, len(previous_years), 2):
         y1 = previous_years[i]
@@ -68,7 +82,6 @@ def create_year_keyboard():
             InlineKeyboardButton(text=f"{y2}", callback_data=f"yr_{y2}")
         )
 
-    # Attribution button at the bottom
     keyboard.row(InlineKeyboardButton(text="Developer: @meoponly", url="https://t.me/meoponly"))
     return keyboard
 
@@ -90,6 +103,7 @@ def send_pdf_to_user(user_id, chat_id, filename, caption):
     is_group = (chat_id != user_id)
 
     try:
+        # Send PDF directly to user's private DM
         bot.send_document(
             chat_id=user_id,
             document=doc_url,
@@ -97,31 +111,47 @@ def send_pdf_to_user(user_id, chat_id, filename, caption):
             parse_mode="Markdown"
         )
         if is_group:
-            bot.send_message(
+            confirm_msg = bot.send_message(
                 chat_id=chat_id,
                 text=f"✅ Sent `{filename}` to your DM! Please check your private chat.",
                 parse_mode="Markdown"
             )
+            # Delete confirmation message after 15 seconds so group stays clean
+            auto_delete_after_delay(chat_id, [confirm_msg.message_id], delay=15)
+
     except telebot.apihelper.ApiTelegramException as e:
         if "bot can't initiate conversation" in str(e) or e.error_code == 403:
             kb = InlineKeyboardMarkup()
             kb.add(InlineKeyboardButton(text="📩 Click here to Start Bot in DM", url=f"https://t.me/{BOT_USERNAME}?start=ready"))
-            bot.send_message(
+            alert_msg = bot.send_message(
                 chat_id=chat_id,
                 text="⚠️ I cannot send you a DM because you haven't started me in private yet.\n\nClick below to start, then request your paper again:",
                 reply_markup=kb
             )
+            if is_group:
+                # Delete authorization prompt after 60 seconds
+                auto_delete_after_delay(chat_id, [alert_msg.message_id], delay=60)
         else:
             bot.send_message(chat_id=chat_id, text=f"❌ Error sending file: {e}")
 
 @bot.message_handler(commands=['pyq', 'tallentex', 'start'])
 def handle_start_command(message):
-    bot.reply_to(
+    is_group = (message.chat.type in ['group', 'supergroup'])
+    
+    sent_msg = bot.reply_to(
         message, 
         get_menu_text(), 
         parse_mode="Markdown", 
         reply_markup=create_year_keyboard()
     )
+
+    # In groups: delete the user's /pyq command AND the bot's menu after 5 minutes (300 seconds)
+    if is_group:
+        auto_delete_after_delay(
+            chat_id=message.chat.id, 
+            message_ids=[message.message_id, sent_msg.message_id], 
+            delay=300
+        )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("yr_"))
 def handle_year_choice(call):
