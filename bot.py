@@ -1,135 +1,241 @@
 import os
 import time
+import datetime
 import threading
 import telebot
-from telebot import types
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ----------------- Configuration ----------------- #
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-COOLDOWN_SECONDS = 30  # Cooldown duration per user in groups
-AUTO_DELETE_DELAY = 5   # Seconds before deleting warning/prompt messages
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8901421905:AAECwHE3UYN3YeQLVCh8x7nikV-zWFkxMq8")
 
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+bot = telebot.TeleBot(BOT_TOKEN)
 
-# In-memory store: {user_id: last_command_timestamp}
-user_last_action = {}
-lock = threading.Lock()
+BASE_RAW_URL = "https://raw.githubusercontent.com/meoponly/tallentex-resource-vault/main/"
 
-# ----------------- Anti-Flood Helper ----------------- #
-def is_rate_limited(user_id: int, chat_type: str) -> tuple[bool, int]:
-    """
-    Checks if a user is within cooldown.
-    Applied primarily to groups/supergroups.
-    """
-    if chat_type not in ["group", "supergroup"]:
-        return False, 0
+# Updated exam date: October 28, 2026
+EXAM_DATE = datetime.date(2026, 10, 28)
 
-    current_time = time.time()
-    with lock:
-        last_time = user_last_action.get(user_id, 0)
-        remaining = int(COOLDOWN_SECONDS - (current_time - last_time))
-        if remaining > 0:
-            return True, remaining
-        user_last_action[user_id] = current_time
-        return False, 0
+VAULT = {
+    "2026": [
+        {"title": "Sample Paper", "file": "SP-2026.pdf"}
+    ],
+    "2025": [
+        {"title": "Question Paper", "file": "QP-2025.pdf"}
+    ],
+    "2024": [
+        {"title": "Question Paper", "file": "QP-2024.pdf"}
+    ],
+    "2023": [
+        {"title": "Question Paper", "file": "QP-2023.pdf"}
+    ],
+    "2022": [
+        {"title": "Question Paper", "file": "QP-2022.pdf"}
+    ],
+    "2021": [
+        {"title": "Question Paper", "file": "QP-2021.pdf"}
+    ],
+    "2019": [
+        {"title": "Paper 1", "file": "QP-2019-Paper1.pdf"},
+        {"title": "Paper 2", "file": "QP-2019-Paper2.pdf"},
+        {"title": "Paper 3", "file": "QP-2019-Paper3.pdf"}
+    ],
+    "2018": [
+        {"title": "Paper 1", "file": "QP-2018-Paper1.pdf"},
+        {"title": "Paper 2", "file": "QP-2018-Paper2.pdf"},
+        {"title": "Paper 3", "file": "QP-2018-Paper3.pdf"}
+    ],
+    "2017": [
+        {"title": "Paper 1", "file": "QP-2017-Paper1.pdf"},
+        {"title": "Paper 2", "file": "QP-2017-Paper2.pdf"}
+    ],
+    "2016": [
+        {"title": "Paper 1", "file": "QP-2016-Paper1.pdf"},
+        {"title": "Paper 2", "file": "QP-2016-Paper2.pdf"}
+    ],
+    "2015": [
+        {"title": "Paper 1", "file": "QP-2015-Paper1.pdf"},
+        {"title": "Paper 2", "file": "QP-2015-Paper2.pdf"}
+    ]
+}
 
-def delayed_delete(chat_id: int, message_ids: list[int], delay: int = AUTO_DELETE_DELAY):
-    """Deletes specific messages after a specified delay in a separate thread."""
+def auto_delete_after_delay(chat_id, message_ids, delay=300):
     def _delete():
         time.sleep(delay)
         for msg_id in message_ids:
             try:
-                bot.delete_message(chat_id, msg_id)
+                bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception:
-                pass  # Avoid crash if message is already deleted or bot lacks delete permission
+                pass
 
     threading.Thread(target=_delete, daemon=True).start()
 
-# ----------------- Command Handlers ----------------- #
-@bot.message_handler(commands=["start", "help"])
-def send_welcome(message: types.Message):
-    limited, remaining = is_rate_limited(message.from_user.id, message.chat.type)
-    if limited:
-        warn = bot.reply_to(
-            message,
-            f"Slow down! Please wait {remaining} seconds before using commands again."
-        )
-        delayed_delete(message.chat.id, [message.message_id, warn.message_id])
-        return
+def create_year_keyboard():
+    keyboard = InlineKeyboardMarkup()
 
-    text = (
-        "Welcome to Tallentex Bot!\n"
-        "Use /getfile to receive the requested resource."
+    # Featured top row: 2026 Sample Paper
+    keyboard.row(InlineKeyboardButton(text="🎯 2026 Sample Paper", callback_data="yr_2026"))
+
+    # Symmetrical 2x5 grid for older years
+    previous_years = ["2025", "2024", "2023", "2022", "2021", "2019", "2018", "2017", "2016", "2015"]
+    for i in range(0, len(previous_years), 2):
+        y1 = previous_years[i]
+        y2 = previous_years[i + 1]
+        keyboard.row(
+            InlineKeyboardButton(text=f"{y1}", callback_data=f"yr_{y1}"),
+            InlineKeyboardButton(text=f"{y2}", callback_data=f"yr_{y2}")
+        )
+
+    keyboard.row(InlineKeyboardButton(text="Developer: @meoponly", url="https://t.me/meoponly"))
+    return keyboard
+
+def get_menu_text():
+    return (
+        "📚 *TALLENTEX Question Paper Vault*\n\n"
+        "Select an exam year below to receive the PDF in your DM:"
     )
-    sent_msg = bot.reply_to(message, text)
 
-    # In groups, clean up messages after some time
-    if message.chat.type in ["group", "supergroup"]:
-        delayed_delete(message.chat.id, [message.message_id, sent_msg.message_id], delay=10)
+def build_caption(year, paper_title, filename):
+    return (
+        f"📄 *TALLENTEX {year}*\n"
+        f"📝 *Paper / Set:* {paper_title}\n"
+        f"📁 *File:* `{filename}`"
+    )
 
-@bot.message_handler(commands=["getfile"])
-def send_file(message: types.Message):
-    chat_type = message.chat.type
-    user_id = message.from_user.id
+def deliver_pdf(call, filename, caption):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    doc_url = BASE_RAW_URL + filename
+    is_group = (chat_id != user_id)
 
-    # Check anti-flood
-    limited, remaining = is_rate_limited(user_id, chat_type)
-    if limited:
-        warn = bot.reply_to(
-            message,
-            f"Please wait {remaining}s before requesting a file again."
-        )
-        delayed_delete(message.chat.id, [message.message_id, warn.message_id])
-        return
-
-    # Notify user that processing has started
-    status_msg = bot.reply_to(message, "Sending your file, please wait...")
+    bot.answer_callback_query(call.id)
 
     try:
-        # Example document dispatch; replace with your target file path or file_id
-        file_path = "sample_paper.pdf"
-        
-        if os.path.exists(file_path):
-            with open(file_path, "rb") as doc:
-                bot.send_document(
-                    message.chat.id,
-                    doc,
-                    caption="Here is your requested Tallentex file."
-                )
-        else:
-            # Fallback if testing without physical file
-            bot.send_message(
-                message.chat.id,
-                "File could not be found on the server. Please contact an admin."
-            )
-
-        # Auto-delete trigger and temporary status messages once sent
-        if chat_type in ["group", "supergroup"]:
-            delayed_delete(message.chat.id, [message.message_id, status_msg.message_id], delay=3)
-
-    except Exception as e:
-        bot.edit_message_text(
-            f"An error occurred while sending the file: {e}",
-            chat_id=message.chat.id,
-            message_id=status_msg.message_id
+        bot.send_document(
+            chat_id=user_id,
+            document=doc_url,
+            caption=caption,
+            parse_mode="Markdown"
         )
-        if chat_type in ["group", "supergroup"]:
-            delayed_delete(message.chat.id, [message.message_id, status_msg.message_id], delay=5)
+        if is_group:
+            confirm_msg = bot.send_message(
+                chat_id=chat_id,
+                text=f"✅ Sent `{filename}` to your DM!",
+                parse_mode="Markdown"
+            )
+            auto_delete_after_delay(chat_id, [confirm_msg.message_id], delay=10)
+    except Exception:
+        pass
 
-# ----------------- Periodic Cleanup ----------------- #
-def cleanup_cooldown_store():
-    """Periodically purges old records to prevent memory growth in large groups."""
-    while True:
-        time.sleep(300)
-        cutoff = time.time() - COOLDOWN_SECONDS
-        with lock:
-            expired_keys = [uid for uid, ts in user_last_action.items() if ts < cutoff]
-            for uid in expired_keys:
-                del user_last_action[uid]
+# /countdown command (Sent in place, never auto-deleted)
+@bot.message_handler(commands=['countdown'])
+def handle_countdown(message):
+    today = datetime.date.today()
+    days_left = (EXAM_DATE - today).days
 
-threading.Thread(target=cleanup_cooldown_store, daemon=True).start()
+    if days_left > 1:
+        text = f"⏳ *{days_left} days* remaining for TALLENTEX (28 Oct 2026)!"
+    elif days_left == 1:
+        text = "⏳ *Only 1 day* remaining for TALLENTEX!"
+    elif days_left == 0:
+        text = "🎯 *Today is the TALLENTEX Exam Day!* Best of luck!"
+    else:
+        text = "TALLENTEX 2026 has already concluded."
 
-# ----------------- Entry Point ----------------- #
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# /syllabus command (Sent in place, never auto-deleted)
+@bot.message_handler(commands=['syllabus'])
+def handle_syllabus(message):
+    image_url = BASE_RAW_URL + "tallentex-10th-syllabus_page-0001.jpg"
+    try:
+        bot.send_photo(
+            chat_id=message.chat.id,
+            photo=image_url,
+            caption="📖 *TALLENTEX Class 10 Syllabus*",
+            parse_mode="Markdown",
+            reply_to_message_id=message.message_id
+        )
+    except Exception as e:
+        bot.reply_to(message, f"❌ Failed to fetch syllabus image: {e}")
+
+# /pyq, /tallentex, /start (Menu auto-deletes in 5 minutes in groups)
+@bot.message_handler(commands=['pyq', 'tallentex', 'start'])
+def handle_start_command(message):
+    is_group = (message.chat.type in ['group', 'supergroup'])
+    
+    sent_msg = bot.reply_to(
+        message, 
+        get_menu_text(), 
+        parse_mode="Markdown", 
+        reply_markup=create_year_keyboard()
+    )
+
+    if is_group:
+        auto_delete_after_delay(
+            chat_id=message.chat.id, 
+            message_ids=[message.message_id, sent_msg.message_id], 
+            delay=300
+        )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("yr_"))
+def handle_year_choice(call):
+    year = call.data.split("_")[1]
+    papers = VAULT.get(year, [])
+
+    if not papers:
+        bot.answer_callback_query(call.id)
+        return
+
+    # Single-paper years (2021-2026)
+    if len(papers) == 1:
+        paper = papers[0]
+        caption = build_caption(year, paper["title"], paper["file"])
+        deliver_pdf(call, paper["file"], caption)
+        return
+
+    # Multi-paper years (2015-2019)
+    bot.answer_callback_query(call.id)
+    kb = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton(
+            text=f"{p['title']}",
+            callback_data=f"doc_{year}_{idx}"
+        )
+        for idx, p in enumerate(papers)
+    ]
+    kb.add(*buttons)
+    kb.row(InlineKeyboardButton(text="⬅️ Back to Years", callback_data="back_years"))
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=(
+            f"📂 *TALLENTEX {year}*\n\n"
+            f"This year has multiple papers. Select one:"
+        ),
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("doc_"))
+def handle_document_choice(call):
+    _, year, idx_str = call.data.split("_")
+    idx = int(idx_str)
+    paper = VAULT[year][idx]
+    caption = build_caption(year, paper["title"], paper["file"])
+
+    deliver_pdf(call, paper["file"], caption)
+
+@bot.callback_query_handler(func=lambda call: call.data == "back_years")
+def handle_back_button(call):
+    bot.answer_callback_query(call.id)
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=get_menu_text(),
+        parse_mode="Markdown",
+        reply_markup=create_year_keyboard()
+    )
+
 if __name__ == "__main__":
-    print("Bot is starting...")
-    bot.infinity_polling(skip_pending=True)
+    print("Tallentex Vault Bot is running...")
+    bot.infinity_polling()
