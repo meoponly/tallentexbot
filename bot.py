@@ -7,7 +7,6 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8901421905:AAECwHE3UYN3YeQLVCh8x7nikV-zWFkxMq8")
 
 bot = telebot.TeleBot(BOT_TOKEN)
-BOT_USERNAME = bot.get_me().username
 
 BASE_RAW_URL = "https://raw.githubusercontent.com/meoponly/tallentex-resource-vault/main/"
 
@@ -55,14 +54,13 @@ VAULT = {
 }
 
 def auto_delete_after_delay(chat_id, message_ids, delay=300):
-    """Deletes designated messages after `delay` seconds in a background thread."""
     def _delete():
         time.sleep(delay)
         for msg_id in message_ids:
             try:
                 bot.delete_message(chat_id=chat_id, message_id=msg_id)
             except Exception:
-                pass  # Ignore if user or admin already deleted it
+                pass
 
     threading.Thread(target=_delete, daemon=True).start()
 
@@ -72,7 +70,7 @@ def create_year_keyboard():
     # Featured top row: 2026 Sample Paper
     keyboard.row(InlineKeyboardButton(text="🎯 2026 Sample Paper", callback_data="yr_2026"))
 
-    # Symmetrical 2x5 grid
+    # Symmetrical 2x5 grid for older years
     previous_years = ["2025", "2024", "2023", "2022", "2021", "2019", "2018", "2017", "2016", "2015"]
     for i in range(0, len(previous_years), 2):
         y1 = previous_years[i]
@@ -98,12 +96,16 @@ def build_caption(year, paper_title, filename):
         f"📁 *File:* `{filename}`"
     )
 
-def send_pdf_to_user(user_id, chat_id, filename, caption):
+def deliver_pdf(call, filename, caption):
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
     doc_url = BASE_RAW_URL + filename
     is_group = (chat_id != user_id)
 
+    # Acknowledge the callback silently so button stops spinning
+    bot.answer_callback_query(call.id)
+
     try:
-        # Send PDF directly to user's private DM
         bot.send_document(
             chat_id=user_id,
             document=doc_url,
@@ -113,26 +115,13 @@ def send_pdf_to_user(user_id, chat_id, filename, caption):
         if is_group:
             confirm_msg = bot.send_message(
                 chat_id=chat_id,
-                text=f"✅ Sent `{filename}` to your DM! Please check your private chat.",
+                text=f"✅ Sent `{filename}` to your DM!",
                 parse_mode="Markdown"
             )
-            # Delete confirmation message after 15 seconds so group stays clean
-            auto_delete_after_delay(chat_id, [confirm_msg.message_id], delay=15)
-
-    except telebot.apihelper.ApiTelegramException as e:
-        if "bot can't initiate conversation" in str(e) or e.error_code == 403:
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton(text="📩 Click here to Start Bot in DM", url=f"https://t.me/{BOT_USERNAME}?start=ready"))
-            alert_msg = bot.send_message(
-                chat_id=chat_id,
-                text="⚠️ I cannot send you a DM because you haven't started me in private yet.\n\nClick below to start, then request your paper again:",
-                reply_markup=kb
-            )
-            if is_group:
-                # Delete authorization prompt after 60 seconds
-                auto_delete_after_delay(chat_id, [alert_msg.message_id], delay=60)
-        else:
-            bot.send_message(chat_id=chat_id, text=f"❌ Error sending file: {e}")
+            auto_delete_after_delay(chat_id, [confirm_msg.message_id], delay=10)
+    except Exception:
+        # If user blocked/never started the bot or download failed, silently ignore
+        pass
 
 @bot.message_handler(commands=['pyq', 'tallentex', 'start'])
 def handle_start_command(message):
@@ -145,7 +134,6 @@ def handle_start_command(message):
         reply_markup=create_year_keyboard()
     )
 
-    # In groups: delete the user's /pyq command AND the bot's menu after 5 minutes (300 seconds)
     if is_group:
         auto_delete_after_delay(
             chat_id=message.chat.id, 
@@ -159,20 +147,14 @@ def handle_year_choice(call):
     papers = VAULT.get(year, [])
 
     if not papers:
-        bot.answer_callback_query(call.id, "No papers found for this year.", show_alert=True)
+        bot.answer_callback_query(call.id)
         return
 
     # Single-paper years (2021-2026)
     if len(papers) == 1:
-        bot.answer_callback_query(call.id, text=f"Sending {year} paper to your DM...")
         paper = papers[0]
         caption = build_caption(year, paper["title"], paper["file"])
-        send_pdf_to_user(
-            user_id=call.from_user.id,
-            chat_id=call.message.chat.id,
-            filename=paper["file"],
-            caption=caption
-        )
+        deliver_pdf(call, paper["file"], caption)
         return
 
     # Multi-paper years (2015-2019)
@@ -204,16 +186,9 @@ def handle_document_choice(call):
     _, year, idx_str = call.data.split("_")
     idx = int(idx_str)
     paper = VAULT[year][idx]
-
-    bot.answer_callback_query(call.id, text=f"Sending {paper['title']} to your DM...")
     caption = build_caption(year, paper["title"], paper["file"])
 
-    send_pdf_to_user(
-        user_id=call.from_user.id,
-        chat_id=call.message.chat.id,
-        filename=paper["file"],
-        caption=caption
-    )
+    deliver_pdf(call, paper["file"], caption)
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_years")
 def handle_back_button(call):
