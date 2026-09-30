@@ -11,8 +11,8 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 BASE_RAW_URL = "https://raw.githubusercontent.com/meoponly/tallentex-resource-vault/main/"
 
-# Updated exam date: October 28, 2026
-EXAM_DATE = datetime.date(2026, 10, 28)
+# Updated exam date: October 25, 2026
+EXAM_DATE = datetime.date(2026, 10, 25)
 
 VAULT = {
     "2026": [
