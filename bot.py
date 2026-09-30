@@ -132,7 +132,7 @@ def handle_countdown(message):
     days_left = (EXAM_DATE - today).days
 
     if days_left > 1:
-        text = f"⏳ *{days_left} days* remaining for TALLENTEX (28 Oct 2026)!"
+        text = f"⏳ *{days_left} days* remaining for TALLENTEX (25 Oct 2026)!"
     elif days_left == 1:
         text = "⏳ *Only 1 day* remaining for TALLENTEX!"
     elif days_left == 0:
